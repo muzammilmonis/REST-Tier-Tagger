@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class RestTiersBridge {
     public static final String REST_BASE = "https://tiers.rest";
-    private static final String PLAYER_ENDPOINT = "/api/public/player/";
+    private static final String PLAYER_ENDPOINT = "/api/player/";
     private static final long PROFILE_TTL_MS = 60_000L;
     private static final long NAME_TTL_MS = 3_600_000L;
 
@@ -68,13 +68,12 @@ public final class RestTiersBridge {
 
     public static CompletableFuture<String> fetchProfileJson(HttpClient client, UUID uuid) {
         final String uuidText = uuid.toString();
-        return fetchCanonicalProfile(client, uuidText, uuidText, true)
-                .exceptionallyCompose(firstFailure -> resolveName(client, uuid).thenCompose(name -> {
-                    if (name == null || name.isBlank()) {
-                        return CompletableFuture.failedFuture(firstFailure);
-                    }
-                    return fetchCanonicalProfile(client, name, uuidText, false);
-                }));
+        return resolveName(client, uuid).thenCompose(name -> {
+            if (name != null && !name.isBlank()) {
+                return fetchCanonicalProfile(client, name, uuidText, false);
+            }
+            return fetchCanonicalProfile(client, uuidText, uuidText, true);
+        });
     }
 
     public static CompletableFuture<String> fetchRankingsJson(HttpClient client, UUID uuid) {
@@ -109,7 +108,7 @@ public final class RestTiersBridge {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(8))
                 .header("Accept", "application/json")
-                .header("User-Agent", "REST-Tier-Tagger/1.0")
+                .header("User-Agent", "REST-Tier-Tagger/1.1")
                 .GET()
                 .build();
 
@@ -120,8 +119,6 @@ public final class RestTiersBridge {
                                 "tiers.rest returned HTTP " + response.statusCode() + " for " + identifier));
                     }
                     JsonObject canonical = canonicalize(response.body(), identifier, preferredUuid);
-                    // A UUID probe is allowed to fail over to Mojang name resolution when tiers.rest
-                    // does not expose UUID lookup. A real empty player profile still has a name.
                     if (uuidProbe && canonical.get("name").getAsString().equals(identifier)
                             && canonical.getAsJsonObject("rankings").size() == 0) {
                         throw new CompletionException(new IllegalStateException("UUID lookup returned no REST profile"));
@@ -147,7 +144,7 @@ public final class RestTiersBridge {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(8))
                 .header("Accept", "application/json")
-                .header("User-Agent", "REST-Tier-Tagger/1.0")
+                .header("User-Agent", "REST-Tier-Tagger/1.1")
                 .GET()
                 .build();
 
@@ -178,9 +175,9 @@ public final class RestTiersBridge {
         }
 
         JsonObject profile = unwrapProfile(root);
-        String name = firstText(profile, "name", "username", "playerName", "player");
+        String name = firstText(profile, "name", "username", "ign", "playerName", "player");
         if (name == null || name.isBlank()) {
-            name = firstText(root, "name", "username", "playerName", "player");
+            name = firstText(root, "name", "username", "ign", "playerName", "player");
         }
         if (name == null || name.isBlank()) {
             name = requestedName;
@@ -215,7 +212,6 @@ public final class RestTiersBridge {
                 continue;
             }
             addRanking(rankings, mode, tier);
-            // Compatibility aliases used by different TierTagger generations.
             if ("netherop".equals(mode)) {
                 addRanking(rankings, "nethop", tier);
                 addRanking(rankings, "neth_pot", tier);
@@ -275,7 +271,7 @@ public final class RestTiersBridge {
     }
 
     private static void collectKnownContainers(JsonObject obj, Map<String, String> out) {
-        String[] keys = {"placements", "rankings", "ranks", "gamemodes", "modes", "tiers", "tierMap"};
+        String[] keys = {"placements", "placementList", "rankings", "ranks", "gamemodes", "modes", "tiers", "tierMap"};
         for (String key : keys) {
             JsonElement value = obj.get(key);
             if (value != null) {
@@ -292,12 +288,12 @@ public final class RestTiersBridge {
             for (JsonElement child : element.getAsJsonArray()) {
                 if (!child.isJsonObject()) continue;
                 JsonObject obj = child.getAsJsonObject();
-                String mode = firstText(obj, "modeSlug", "gamemodeSlug", "mode", "gamemode", "id", "slug");
-                String tier = firstText(obj, "tier", "rank", "value", "tierName", "placement");
+                String mode = firstText(obj, "slug", "modeSlug", "gamemodeSlug", "mode", "gamemode", "key", "id");
+                String tier = firstText(obj, "tier", "rank", "currentTier", "placement", "tierName", "value");
                 if (tier == null) {
                     JsonElement rank = obj.get("ranking");
                     if (rank != null && rank.isJsonObject()) {
-                        tier = firstText(rank.getAsJsonObject(), "tier", "rank", "value", "tierName", "placement");
+                        tier = firstText(rank.getAsJsonObject(), "tier", "rank", "currentTier", "placement", "tierName", "value");
                     }
                 }
                 putPlacement(out, mode, tier);
@@ -316,13 +312,13 @@ public final class RestTiersBridge {
                 tier = value.getAsString();
             } else if (value != null && value.isJsonObject()) {
                 JsonObject obj = value.getAsJsonObject();
-                String embeddedMode = firstText(obj, "modeSlug", "gamemodeSlug", "mode", "gamemode", "id", "slug");
+                String embeddedMode = firstText(obj, "slug", "modeSlug", "gamemodeSlug", "mode", "gamemode", "key", "id");
                 if (embeddedMode != null) mode = embeddedMode;
-                tier = firstText(obj, "tier", "rank", "value", "tierName", "placement");
+                tier = firstText(obj, "tier", "rank", "currentTier", "placement", "tierName", "value");
                 if (tier == null) {
                     JsonElement rank = obj.get("ranking");
                     if (rank != null && rank.isJsonObject()) {
-                        tier = firstText(rank.getAsJsonObject(), "tier", "rank", "value", "tierName", "placement");
+                        tier = firstText(rank.getAsJsonObject(), "tier", "rank", "currentTier", "placement", "tierName", "value");
                     }
                 }
             }
@@ -340,7 +336,7 @@ public final class RestTiersBridge {
                 if (tier != null) putPlacement(out, key, tier);
             } else if (value != null && value.isJsonObject()) {
                 JsonObject child = value.getAsJsonObject();
-                String tier = firstText(child, "tier", "rank", "value", "tierName", "placement");
+                String tier = firstText(child, "tier", "rank", "currentTier", "placement", "tierName", "value");
                 if (validTier(tier) != null) putPlacement(out, key, tier);
             }
         }
@@ -348,11 +344,11 @@ public final class RestTiersBridge {
 
     private static boolean isReservedKey(String key) {
         String k = key.toLowerCase(Locale.ROOT);
-        return k.equals("name") || k.equals("username") || k.equals("player") || k.equals("playername")
+        return k.equals("name") || k.equals("username") || k.equals("ign") || k.equals("player") || k.equals("playername")
                 || k.equals("uuid") || k.equals("id") || k.equals("tier") || k.equals("rank")
                 || k.equals("profile") || k.equals("data") || k.equals("result") || k.equals("overall")
                 || k.equals("region") || k.equals("points") || k.equals("badges") || k.equals("combat_master")
-                || k.equals("placements") || k.equals("rankings") || k.equals("ranks") || k.equals("gamemodes")
+                || k.equals("placements") || k.equals("placementlist") || k.equals("rankings") || k.equals("ranks") || k.equals("gamemodes")
                 || k.equals("modes") || k.equals("tiers") || k.equals("tiermap");
     }
 

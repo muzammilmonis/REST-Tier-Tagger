@@ -1,0 +1,40 @@
+name: Publish REST Tier Tagger v1.0.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v1.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified all-version bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-asset
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/11178697627/zip" \
+            > artifact.zip
+          unzip -q artifact.zip -d release-asset
+          test -f release-asset/REST-Tier-Tagger-1.20.1-to-26.3.zip
+
+      - name: Publish v1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.0" \
+            "release-asset/REST-Tier-Tagger-1.20.1-to-26.3.zip#REST Tier Tagger v1.0.0 - all supported versions" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "da2375e14c8ae309b7ea7edf442d391a9f3b9a7f" \
+            --title "REST Tier Tagger v1.0.0" \
+            --notes $'First stable REST Tier Tagger release.\n\nSupported Minecraft versions:\n- 1.20.1\n- 1.20.2\n- 1.20.3\n- 1.20.6\n- 1.21\n- 1.21.2\n- 1.21.4\n- 1.21.5\n- 1.21.6\n- 1.21.9\n- 1.21.11\n- 26.1\n- 26.2\n- 26.3\n\nHighlights:\n- REST Tiers data via tiers.rest\n- Modern TierTagger UI preserved\n- /tiertagger command preserved\n- /rtiertagger alias added\n- REST Tier Tagger branding and REST-owned mode icons\n- Fabric and NeoForge outputs where supported\n\nBuilt and verified by GitHub Actions.'

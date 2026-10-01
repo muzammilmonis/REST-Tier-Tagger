@@ -63,6 +63,10 @@ def main():
     run(["git", "clone", "--depth", "1", "--branch", upstream_branch,
          "https://github.com/mctiers-dev/TierTagger.git", str(repo)])
     run([sys.executable, str(ROOT / "tools" / "patch_branch.py"), str(repo), "--branch", branch])
+    # Final provider cleanup for modern enum/multiloader branches. This intentionally
+    # preserves the upstream settings/profile/search/rendering UI and only removes
+    # old provider references/assets that must not ship in the REST build.
+    run([sys.executable, str(ROOT / "tools" / "cleanup_upstream_refs.py"), str(repo)])
 
     gradlew = repo / ("gradlew.bat" if os.name == "nt" else "gradlew")
     if os.name != "nt":

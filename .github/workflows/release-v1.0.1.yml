@@ -1,0 +1,40 @@
+name: Publish REST Tier Tagger v1.0.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v1.0.1.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified fixed all-version bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-asset
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/11180791788/zip" \
+            > artifact.zip
+          unzip -q artifact.zip -d release-asset
+          test -f release-asset/REST-Tier-Tagger-1.20.1-to-26.3.zip
+
+      - name: Publish v1.0.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.1" \
+            "release-asset/REST-Tier-Tagger-1.20.1-to-26.3.zip#REST Tier Tagger v1.0.1 - fixed all supported versions" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "9948b8556deaf8a90b623a71ad4c1178cd7ff944" \
+            --title "REST Tier Tagger v1.0.1" \
+            --notes $'Runtime API fix release.\n\nFixes:\n- Corrected REST player lookup from the invalid /api/public/player/ route to the working /api/player/{player} contract used by REST Tiers.\n- Player UUID lookups resolve the Minecraft username before querying REST Tiers, matching the name-based REST endpoint.\n- Added compatibility for REST profile keys including ign, placementList, currentTier, slug, key and nested ranking forms.\n- /tiertagger and /rtiertagger remain available.\n- Upstream TierTagger nametag, tab-list rendering, cache flow, profile/config UI and screen classes remain preserved.\n\nSupported Minecraft versions:\n- 1.20.1\n- 1.20.2\n- 1.20.3\n- 1.20.6\n- 1.21\n- 1.21.2\n- 1.21.4\n- 1.21.5\n- 1.21.6\n- 1.21.9\n- 1.21.11\n- 26.1\n- 26.2\n- 26.3\n\nAll 14 matrix builds and the combined bundle passed GitHub Actions. Built JARs were additionally checked for the corrected /api/player/ route, absence of /api/public/player/, both commands, nametag/tab mixins and config UI.'
